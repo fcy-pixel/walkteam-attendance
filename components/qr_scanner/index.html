@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      overflow: hidden;
+    }
+
+    .wrap {
+      position: relative;
+      width: 100%;
+      background: #0f172a;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    /* Loading state */
+    #loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 300px;
+      gap: 14px;
+      color: #94a3b8;
+    }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid #1e293b;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Video container */
+    #reader { width: 100%; display: none; }
+    #reader video {
+      width: 100% !important;
+      height: auto !important;
+      display: block !important;
+    }
+    /* Hide html5-qrcode UI noise */
+    #reader__dashboard { display: none !important; }
+    #reader__scan_region img { display: none !important; }
+    #reader__scan_region { position: relative; }
+
+    /* Scanning overlay corners */
+    .overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 28px;
+      pointer-events: none;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .corner-box {
+      width: 200px; height: 200px;
+      position: relative;
+    }
+    .corner-box::before, .corner-box::after,
+    .corner-box > i::before, .corner-box > i::after {
+      content: '';
+      position: absolute;
+      width: 28px; height: 28px;
+      border-color: #38bdf8;
+      border-style: solid;
+    }
+    .corner-box::before  { top:0;    left:0;  border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+    .corner-box::after   { top:0;    right:0; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+    .corner-box > i::before { bottom:0; left:0;  border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+    .corner-box > i::after  { bottom:0; right:0; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+    /* Scan line */
+    .scan-line {
+      position: absolute;
+      left: 4px; right: 4px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, #38bdf8 40%, #818cf8 60%, transparent 100%);
+      box-shadow: 0 0 8px #38bdf8;
+      animation: slide 2s ease-in-out infinite;
+      top: 0;
+    }
+    @keyframes slide {
+      0%   { top: 4px;   opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: calc(100% - 4px); opacity: 0; }
+    }
+
+    /* Status bar */
+    .status {
+      background: rgba(15, 23, 42, 0.92);
+      color: #e2e8f0;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 40px;
+      backdrop-filter: blur(8px);
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .status.ok {
+      background: rgba(22, 163, 74, 0.92);
+      animation: flashIn 0.25s ease;
+    }
+    .status.err {
+      background: rgba(220, 38, 38, 0.88);
+    }
+    @keyframes flashIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #22d3ee;
+      animation: blink 1.4s ease infinite;
+      flex-shrink: 0;
+    }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div id="loading">
+    <div class="spinner"></div>
+    <span style="font-size:13px;">開啟相機中…</span>
+  </div>
+
+  <div id="reader"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="corner-box">
+      <i></i>
+      <div class="scan-line"></div>
+    </div>
+  </div>
+
+  <div class="status" id="status">
+    <div class="live-dot"></div>
+    <span id="status-text">對準學生 QR 碼，自動掃描點名</span>
+  </div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+  // ── Streamlit component bridge ──────────────────────────────────────────
+  function post(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data), "*");
+  }
+  const Streamlit = {
+    setComponentValue: v => post("streamlit:setComponentValue", { value: v }),
+    setFrameHeight:    h => post("streamlit:setFrameHeight",    { height: h }),
+  };
+  post("streamlit:componentReady", { apiVersion: 1 });
+  window.addEventListener("message", e => {
+    if (e.data.type === "streamlit:render") Streamlit.setFrameHeight(document.body.scrollHeight);
+  });
+
+  // ── Scanner ─────────────────────────────────────────────────────────────
+  let lastText = "", lastTs = 0;
+
+  function onDecoded(text) {
+    const now = Date.now();
+    if (text === lastText && now - lastTs < 3000) return;
+    lastText = text; lastTs = now;
+
+    const bar    = document.getElementById("status");
+    const barTxt = document.getElementById("status-text");
+    bar.className = "status ok";
+    barTxt.textContent = "✅  " + text;
+    setTimeout(() => {
+      bar.className = "status";
+      barTxt.textContent = "對準學生 QR 碼，自動掃描點名";
+    }, 2000);
+
+    Streamlit.setComponentValue({ text, ts: now });
+  }
+
+  const scanner = new Html5Qrcode("reader");
+  scanner.start(
+    { facingMode: "environment" },
+    { fps: 15, qrbox: { width: 200, height: 200 }, aspectRatio: 1.333 },
+    onDecoded,
+    () => {}
+  ).then(() => {
+    document.getElementById("loading").style.display  = "none";
+    document.getElementById("reader").style.display   = "block";
+    document.getElementById("overlay").style.display  = "flex";
+    setTimeout(() => Streamlit.setFrameHeight(document.body.scrollHeight), 400);
+  }).catch(err => {
+    const loading = document.getElementById("loading");
+    loading.innerHTML = `<div style="color:#f87171;text-align:center;padding:16px;font-size:13px;">
+      ⚠️ 無法開啟相機<br><small style="opacity:.7;margin-top:6px;display:block">${err}</small>
+    </div>`;
+    Streamlit.setFrameHeight(120);
+  });
+</script>
+</body>
+</html>
