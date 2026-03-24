@@ -270,17 +270,28 @@ with tab_list:
         time_txt = f"&nbsp;&nbsp;<small style='color:#16a34a'>🕐 {s['time']}</small>" if s['time'] else ""
         note_indicator = " 📢" if s.get("dailyNote") else ""
 
+        # Pre-build HTML fragments to avoid generator expressions inside f-strings
+        notes_html = f'<br><span style="font-size:.8rem;color:#3b82f6;">👨&#8205;👧 {s["notes"]}</span>' if s.get("notes") else ""
+        acts_html = "".join(
+            f'<br><span style="font-size:.8rem;color:#7c3aed;">🏃 {a}</span>'
+            for a in (s.get("activities") or [])
+        )
+        daily_note_html = (
+            f'<br><div style="background:#fef2f2;border:1px solid #fecaca;'
+            f'border-radius:6px;padding:4px 8px;margin-top:4px;font-size:.85rem;color:#b91c1c;">'
+            f'📢 今日通報：{s["dailyNote"]}</div>'
+        ) if s.get("dailyNote") else ""
+        status_icon = "✅" if is_present else "⬜"
+
         st.markdown(f"""
 <div style="background:{bg};border:1px solid {border};border-left:4px solid {border};
             border-radius:10px;padding:10px 14px;margin-bottom:6px;">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;">
     <div style="flex:1;min-width:200px;">
-      <span style="font-size:1.1rem;font-weight:700;">{'✅' if is_present else '⬜'} {s['name']}{note_indicator}</span>{time_txt}
+      <span style="font-size:1.1rem;font-weight:700;">{status_icon} {s['name']}{note_indicator}</span>{time_txt}
       <br><span style="background:#e5e7eb;border-radius:4px;padding:1px 7px;font-size:.8rem;margin-right:4px;">{s.get('class','')}</span>
       <span style="font-size:.85rem;color:#6b7280;">{s.get('number','')}號</span>
-      {'<br><span style="font-size:.8rem;color:#3b82f6;">👨‍👧 '+s['notes']+'</span>' if s.get('notes') else ''}
-      {''.join(f'<br><span style="font-size:.8rem;color:#7c3aed;">🏃 '+a+'</span>' for a in (s.get('activities') or []))}
-      {'<br><div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:4px 8px;margin-top:4px;font-size:.85rem;color:#b91c1c;">📢 今日通報：'+s['dailyNote']+'</div>' if s.get('dailyNote') else ''}
+      {notes_html}{acts_html}{daily_note_html}
     </div>
   </div>
 </div>
