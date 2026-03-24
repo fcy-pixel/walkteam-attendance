@@ -3,6 +3,7 @@
 QR 碼內容為學生姓名，以姓名比對完成點名
 """
 
+import base64
 import io
 import json
 import csv
@@ -58,8 +59,15 @@ if not st.session_state.authenticated:
 def _init_firebase():
     if not firebase_admin._apps:
         try:
-            cred_json = st.secrets["FIREBASE_SERVICE_ACCOUNT"]
-            cred_dict = json.loads(cred_json) if isinstance(cred_json, str) else dict(cred_json)
+            # Accepts base64-encoded JSON (FIREBASE_JSON_B64)
+            # or a TOML table ([FIREBASE_SERVICE_ACCOUNT])
+            if "FIREBASE_JSON_B64" in st.secrets:
+                cred_dict = json.loads(base64.b64decode(st.secrets["FIREBASE_JSON_B64"]).decode())
+            elif "FIREBASE_SERVICE_ACCOUNT" in st.secrets:
+                raw = st.secrets["FIREBASE_SERVICE_ACCOUNT"]
+                cred_dict = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            else:
+                return None, "找不到 FIREBASE_JSON_B64 或 FIREBASE_SERVICE_ACCOUNT secret"
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
         except Exception as e:
@@ -74,10 +82,14 @@ if _db is None:
 請在 Streamlit Cloud → App settings → Secrets 中加入以下設定：
 
 ```toml
-FIREBASE_SERVICE_ACCOUNT = '{"type":"service_account","project_id":"walkteam-6ffb5",...}'
+FIREBASE_JSON_B64 = "eyJ0eXBlIjo..."
 ```
 
-請從 Firebase Console → 專案設定 → 服務帳戶 → 產生新的私密金鑰 (JSON) 取得上述內容。
+**取得方式（在你的 Mac 終端機執行）：**
+```bash
+python3 /tmp/make_b64_secret.py
+```
+然後將剪貼簿內容貼到 Secrets 即可。
     """)
     st.stop()
 
