@@ -209,10 +209,12 @@ def set_note(student, note):
 def merge(students, records):
     return [{
         **s,
-        "status":    "present" if records.get(s["id"], {}).get("status") == "present" else "absent",
+        "status":    records.get(s["id"], {}).get("status", "absent") or "absent",
         "time":      records.get(s["id"], {}).get("time", ""),
         "dailyNote": records.get(s["id"], {}).get("dailyNote", ""),
     } for s in students]
+
+STAT_LABEL = {"present": "已到", "absent": "未到", "skipped": "不跟歸程隊"}
 
 def make_csv(data, date):
     buf = io.StringIO()
@@ -222,7 +224,7 @@ def make_csv(data, date):
     for s in data:
         acts = "、".join(s.get("activities") or [])
         w.writerow([s.get("class", ""), s.get("number", ""), s.get("name", ""),
-                    "已到" if s.get("status") == "present" else "未到",
+                    STAT_LABEL.get(s.get("status"), "未到"),
                     s.get("time", ""), s.get("dailyNote", ""), s.get("notes", ""), acts])
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
@@ -233,6 +235,10 @@ def process_qr(qr_text, computed):
         return None, f"找不到學生：{name}", False
     if match["status"] == "present":
         return match, f"{match['name']} 已報到（{match['time']}）", False
+    if match["status"] == "skipped":
+        # Allow scan to override — student changed plans
+        set_status(match, "present")
+        return match, f"✅  {match['name']} 報到成功！（已更新不跟歸程隊→已到）", True
     set_status(match, "present")
     return match, f"✅  {match['name']} 報到成功！", True
 
@@ -247,6 +253,7 @@ students  = load_students()
 records   = load_records(td)
 computed  = merge(students, records)
 present_n = sum(1 for s in computed if s["status"] == "present")
+skipped_n = sum(1 for s in computed if s["status"] == "skipped")
 total_n   = len(computed)
 pct       = int(present_n / total_n * 100) if total_n else 0
 
@@ -271,6 +278,7 @@ with h_col:
       {present_n}<span style="font-size:1.3rem;opacity:.6;">/{total_n}</span>
     </div>
     <div style="font-size:.72rem;opacity:.7;margin-top:2px;">已到 / 總人數</div>
+    {f'<div style="font-size:.72rem;margin-top:4px;background:rgba(255,255,255,.15);border-radius:999px;padding:2px 10px;display:inline-block;">🚫 {skipped_n} 不跟歸程隊</div>' if skipped_n else ''}
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -281,11 +289,16 @@ with ref_col:
 
 # ── Student card ───────────────────────────────────────────────────────────────
 def _student_card(s, key_prefix=""):
-    is_p   = s["status"] == "present"
-    bg     = "#f0fdf4" if is_p else "white"
-    border = "#bbf7d0" if is_p else "#e2e8f0"
-    left   = "#16a34a" if is_p else "#cbd5e1"
-    icon   = "✅" if is_p else "⬜"
+    status = s["status"]
+    is_p   = status == "present"
+    is_sk  = status == "skipped"
+
+    if is_p:
+        bg, border, left, icon = "#f0fdf4", "#bbf7d0", "#16a34a", "✅"
+    elif is_sk:
+        bg, border, left, icon = "#fffbeb", "#fde68a", "#d97706", "🚫"
+    else:
+        bg, border, left, icon = "white", "#e2e8f0", "#cbd5e1", "⬜"
 
     time_html  = f'<span style="font-size:.78rem;color:#16a34a;margin-left:6px;">🕐 {s["time"]}</span>' if s.get("time") else ""
     notes_html = f'<div style="font-size:.78rem;color:#2563eb;margin-top:3px;">👨‍👧 {s["notes"]}</div>' if s.get("notes") else ""
@@ -303,6 +316,12 @@ def _student_card(s, key_prefix=""):
         f'<span>📢</span><span>{s["dailyNote"]}</span></div>'
     ) if s.get("dailyNote") else ""
 
+    skip_badge = (
+        '<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;'
+        'padding:4px 10px;margin-top:6px;font-size:.8rem;color:#92400e;display:inline-flex;gap:5px;align-items:center;">'
+        '<span>🚫</span><span>不跟歸程隊放學</span></div>'
+    ) if is_sk else ""
+
     st.markdown(f"""
 <div style="background:{bg};border:1px solid {border};border-left:4px solid {left};
             border-radius:12px;padding:10px 14px;
@@ -312,17 +331,26 @@ def _student_card(s, key_prefix=""):
     <span style="background:#e2e8f0;border-radius:6px;padding:1px 8px;font-size:.75rem;color:#475569;font-weight:600;">{s.get('class', '')}</span>
     <span style="font-size:.8rem;color:#64748b;">{s.get('number', '')}號</span>
   </div>
-  {notes_html}{acts_wrap}{note_badge}
+  {notes_html}{acts_wrap}{note_badge}{skip_badge}
 </div>
 """, unsafe_allow_html=True)
 
-    btn_c, note_c = st.columns(2)
+    btn_c, skip_c, note_c = st.columns(3)
     with btn_c:
         lbl  = "↩️ 取消報到" if is_p else "✅ 報到"
         kind = "secondary" if is_p else "primary"
         if st.button(lbl, key=f"{key_prefix}a_{s['id']}", use_container_width=True, type=kind):
             set_status(s, "absent" if is_p else "present")
             st.rerun()
+    with skip_c:
+        if is_sk:
+            if st.button("↩️ 取消不跟", key=f"{key_prefix}sk_{s['id']}", use_container_width=True, type="secondary"):
+                set_status(s, "absent")
+                st.rerun()
+        else:
+            if st.button("🚫 不跟歸程隊", key=f"{key_prefix}sk_{s['id']}", use_container_width=True):
+                set_status(s, "skipped")
+                st.rerun()
     with note_c:
         nlbl = "✏️ 編輯通報" if s.get("dailyNote") else "📝 通報"
         if st.button(nlbl, key=f"{key_prefix}n_{s['id']}", use_container_width=True):
@@ -482,7 +510,7 @@ with tab_list:
             search = st.text_input("搜尋", placeholder="搜尋班級或姓名…",
                                    label_visibility="collapsed", key="list_search")
         with fc2:
-            filt = st.selectbox("篩選", ["全部", "未到 ⬜", "已到 ✅"],
+            filt = st.selectbox("篩選", ["全部", "未到 ⬜", "已到 ✅", "不跟歸程隊 🚫"],
                                 label_visibility="collapsed", key="list_filter")
 
         view = list(computed)
@@ -493,14 +521,18 @@ with tab_list:
             view = [s for s in view if s["status"] == "absent"]
         elif filt == "已到 ✅":
             view = [s for s in view if s["status"] == "present"]
+        elif filt == "不跟歸程隊 🚫":
+            view = [s for s in view if s["status"] == "skipped"]
 
         abs_n  = sum(1 for s in view if s["status"] == "absent")
         pres_v = sum(1 for s in view if s["status"] == "present")
+        skip_v = sum(1 for s in view if s["status"] == "skipped")
         st.markdown(f"""
 <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
   <span style="background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:3px 12px;font-size:.8rem;font-weight:700;">共 {len(view)} 人</span>
   <span style="background:#dcfce7;color:#166534;border-radius:999px;padding:3px 12px;font-size:.8rem;font-weight:700;">✅ 已到 {pres_v}</span>
   <span style="background:#fee2e2;color:#991b1b;border-radius:999px;padding:3px 12px;font-size:.8rem;font-weight:700;">⬜ 未到 {abs_n}</span>
+  {f'<span style="background:#fef9c3;color:#92400e;border-radius:999px;padding:3px 12px;font-size:.8rem;font-weight:700;">🚫 不跟 {skip_v}</span>' if skip_v else ''}
 </div>
 """, unsafe_allow_html=True)
 
@@ -555,15 +587,18 @@ with tab_history:
 
             st.markdown("<br>", unsafe_allow_html=True)
             for s in h_data:
-                is_p = s["status"] == "present"
-                op   = "1" if is_p else "0.5"
-                ic   = "✅" if is_p else "❌"
-                tt   = f'<span style="font-size:.75rem;color:#16a34a;margin-left:8px;">🕐 {s["time"]}</span>' if s.get("time") else ""
-                nt   = f'<div style="font-size:.78rem;color:#b91c1c;margin-top:3px;">📢 {s["dailyNote"]}</div>' if s.get("dailyNote") else ""
+                st_val = s["status"]
+                is_p   = st_val == "present"
+                is_sk  = st_val == "skipped"
+                op     = "1" if (is_p or is_sk) else "0.5"
+                ic     = "✅" if is_p else ("🚫" if is_sk else "❌")
+                tt     = f'<span style="font-size:.75rem;color:#16a34a;margin-left:8px;">🕐 {s["time"]}</span>' if s.get("time") else ""
+                skip_t = '<span style="font-size:.75rem;color:#92400e;margin-left:8px;background:#fef9c3;border-radius:4px;padding:1px 6px;">不跟歸程隊</span>' if is_sk else ""
+                nt     = f'<div style="font-size:.78rem;color:#b91c1c;margin-top:3px;">📢 {s["dailyNote"]}</div>' if s.get("dailyNote") else ""
                 st.markdown(f"""
 <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;
             padding:8px 14px;margin-bottom:3px;opacity:{op};">
-  <span style="font-weight:700;">{ic} {s['name']}</span>{tt}
+  <span style="font-weight:700;">{ic} {s['name']}</span>{tt}{skip_t}
   <div style="font-size:.78rem;color:#64748b;margin-top:2px;">
     <span style="background:#e2e8f0;border-radius:4px;padding:1px 6px;margin-right:4px;">{s.get('class', '')}</span>{s.get('number', '')}號
   </div>
