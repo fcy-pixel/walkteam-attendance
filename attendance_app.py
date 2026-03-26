@@ -160,6 +160,11 @@ def today_label():
     n = hk_now()
     return f"{n.year}年{n.month}月{n.day}日　{WEEKDAYS[n.weekday()]}"
 
+def today_acts(student):
+    """Return only the activities that apply to today's weekday."""
+    wd = WEEKDAYS[hk_now().weekday()]
+    return [a for a in (student.get("activities") or []) if a.startswith(wd)]
+
 @st.cache_data(ttl=8)
 def load_students():
     return sorted(
@@ -345,8 +350,8 @@ def _student_card(s, key_prefix=""):
 
     acts_html = "".join(
         f'<span style="display:inline-block;background:#ede9fe;color:#6d28d9;border-radius:6px;'
-        f'padding:1px 8px;font-size:.72rem;margin:2px 2px 0 0;">{a}</span>'
-        for a in (s.get("activities") or [])
+        f'padding:1px 8px;font-size:.72rem;margin:2px 2px 0 0;">{a.split(": ",1)[-1]}</span>'
+        for a in today_acts(s)
     )
     acts_wrap = f'<div style="margin-top:5px;">{acts_html}</div>' if acts_html else ""
 
@@ -449,7 +454,7 @@ with tab_scan:
             r = st.session_state.scan_result
             s = r["student"]
             if r["success"] and s:
-                acts_text = "　".join(s.get("activities") or [])
+                acts_text = "　".join(a.split(": ",1)[-1] for a in today_acts(s))
                 acts_row  = f'<div style="font-size:.78rem;color:#7c3aed;margin-top:3px;">🏃 {acts_text}</div>' if acts_text else ""
                 note_row  = (
                     f'<div style="font-size:.78rem;color:#b91c1c;background:#fef2f2;'
@@ -553,7 +558,7 @@ with tab_list:
             filt = st.selectbox("篩選", ["全部", "未到 ⬜", "已到 ✅", "不跟歸程隊 🚫"],
                                 label_visibility="collapsed", key="list_filter")
 
-        activity_absent = [s for s in computed if s.get("activities") and s["status"] == "absent"]
+        activity_absent = [s for s in computed if today_acts(s) and s["status"] == "absent"]
         if activity_absent:
             names_str = "、".join(s["name"] for s in activity_absent)
             st.markdown(f"""
