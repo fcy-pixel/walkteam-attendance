@@ -206,6 +206,25 @@ def set_note(student, note):
     }, merge=True)
     _clear()
 
+def bulk_set_skipped(students_list):
+    td = today_str()
+    now = datetime.now()
+    records_map = {
+        s["id"]: {
+            "status": "skipped",
+            "time": None,
+            "name": s["name"],
+            "class": s.get("class", ""),
+            "number": s.get("number", ""),
+        }
+        for s in students_list
+    }
+    db.collection("daily_records").document(td).set(
+        {"date": td, "timestamp": now.timestamp(), "records": records_map},
+        merge=True
+    )
+    _clear()
+
 def merge(students, records):
     return [{
         **s,
@@ -512,6 +531,20 @@ with tab_list:
         with fc2:
             filt = st.selectbox("篩選", ["全部", "未到 ⬜", "已到 ✅", "不跟歸程隊 🚫"],
                                 label_visibility="collapsed", key="list_filter")
+
+        activity_absent = [s for s in computed if s.get("activities") and s["status"] == "absent"]
+        if activity_absent:
+            names_str = "、".join(s["name"] for s in activity_absent)
+            st.markdown(f"""
+<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:12px 16px;margin-bottom:10px;">
+  <div style="font-size:.88rem;font-weight:700;color:#92400e;margin-bottom:5px;">📋 今日有活動、尚未標記的學生（{len(activity_absent)} 人）</div>
+  <div style="font-size:.82rem;color:#78350f;margin-bottom:8px;">{names_str}</div>
+  <div style="font-size:.75rem;color:#92400e;opacity:.75;">可一鍵預先標記為不跟歸程隊，方便老師點名。</div>
+</div>
+""", unsafe_allow_html=True)
+            if st.button(f"🚫 一鍵標記為不跟歸程隊（{len(activity_absent)} 人）", type="primary", use_container_width=True, key="bulk_skip"):
+                bulk_set_skipped(activity_absent)
+                st.rerun()
 
         view = list(computed)
         if search:
