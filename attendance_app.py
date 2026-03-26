@@ -7,7 +7,11 @@ import base64
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+HKT = timezone(timedelta(hours=8))
+def hk_now():
+    return datetime.now(HKT)
 from pathlib import Path
 
 import pandas as pd
@@ -150,10 +154,10 @@ def live_qr(key="qr"):
 WEEKDAYS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
 
 def today_str():
-    return datetime.now().strftime("%Y-%m-%d")
+    return hk_now().strftime("%Y-%m-%d")
 
 def today_label():
-    n = datetime.now()
+    n = hk_now()
     return f"{n.year}年{n.month}月{n.day}日　{WEEKDAYS[n.weekday()]}"
 
 @st.cache_data(ttl=8)
@@ -179,7 +183,7 @@ def _clear():
 
 def set_status(student, new_status):
     td = today_str()
-    now = datetime.now()
+    now = hk_now()
     db.collection("daily_records").document(td).set({
         "date": td, "timestamp": now.timestamp(),
         "records": {student["id"]: {
@@ -194,7 +198,7 @@ def set_status(student, new_status):
 
 def set_note(student, note):
     td = today_str()
-    now = datetime.now()
+    now = hk_now()
     db.collection("daily_records").document(td).set({
         "date": td, "timestamp": now.timestamp(),
         "records": {student["id"]: {
@@ -208,7 +212,7 @@ def set_note(student, note):
 
 def bulk_set_skipped(students_list):
     td = today_str()
-    now = datetime.now()
+    now = hk_now()
     records_map = {
         s["id"]: {
             "status": "skipped",
@@ -442,7 +446,7 @@ with tab_scan:
   <div style="font-size:1.4rem;font-weight:800;color:#14532d;">{s['name']}</div>
   <div style="font-size:.82rem;color:#166534;margin-top:2px;">{s.get('class', '')}　{s.get('number', '')}號</div>
   {acts_row}{note_row}
-  <div style="font-size:.75rem;color:#16a34a;margin-top:6px;opacity:.8;">{datetime.now().strftime('%H:%M')} 報到成功</div>
+  <div style="font-size:.75rem;color:#16a34a;margin-top:6px;opacity:.8;">{hk_now().strftime('%H:%M')} 報到成功</div>
 </div>
 """, unsafe_allow_html=True)
             else:
