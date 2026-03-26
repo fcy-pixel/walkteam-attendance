@@ -350,7 +350,7 @@ def _student_card(s, key_prefix=""):
 
     acts_html = "".join(
         f'<span style="display:inline-block;background:#ede9fe;color:#6d28d9;border-radius:6px;'
-        f'padding:1px 8px;font-size:.72rem;margin:2px 2px 0 0;">{a.split(": ",1)[-1]}</span>'
+        f'padding:1px 8px;font-size:.72rem;margin:2px 2px 0 0;">{a}</span>'
         for a in today_acts(s)
     )
     acts_wrap = f'<div style="margin-top:5px;">{acts_html}</div>' if acts_html else ""
@@ -454,7 +454,7 @@ with tab_scan:
             r = st.session_state.scan_result
             s = r["student"]
             if r["success"] and s:
-                acts_text = "　".join(a.split(": ",1)[-1] for a in today_acts(s))
+                acts_text = "　".join(today_acts(s))
                 acts_row  = f'<div style="font-size:.78rem;color:#7c3aed;margin-top:3px;">🏃 {acts_text}</div>' if acts_text else ""
                 note_row  = (
                     f'<div style="font-size:.78rem;color:#b91c1c;background:#fef2f2;'
