@@ -310,6 +310,23 @@ with ref_col:
     if st.button("🔄", help="重新整理"):
         _clear(); st.rerun()
 
+# Live HKT clock
+stcomponents.html("""
+<div style="text-align:center;font-size:1.55rem;font-weight:800;color:#1e3a8a;
+            letter-spacing:2px;font-family:monospace;padding:4px 0 8px;" id="hktclock">--:--:--</div>
+<div style="text-align:center;font-size:.72rem;color:#64748b;margin-top:-6px;margin-bottom:2px;">香港時間 HKT</div>
+<script>
+function tick() {
+  const now = new Date();
+  const hkt = new Date(now.toLocaleString('en-US', {timeZone: 'Asia/Hong_Kong'}));
+  const pad = n => String(n).padStart(2, '0');
+  document.getElementById('hktclock').textContent = pad(hkt.getHours()) + ':' + pad(hkt.getMinutes()) + ':' + pad(hkt.getSeconds());
+}
+tick();
+setInterval(tick, 1000);
+</script>
+""", height=58)
+
 # ── Student card ───────────────────────────────────────────────────────────────
 def _student_card(s, key_prefix=""):
     status = s["status"]
@@ -750,4 +767,33 @@ with tab_settings:
     st.markdown("### 🔓 登出")
     if st.button("登出系統", use_container_width=True):
         st.session_state.auth = False
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 🕐 修正歷史時區")
+    st.caption("如過往紀錄時間顯示為 UTC（比香港慢 8 小時），按此一次性修正。每筆時間均 +8 小時。請勿重複執行。")
+    if st.button("🔧 將所有歷史紀錄時間 +8 小時（UTC→HKT）", use_container_width=True):
+        with st.spinner("修正中…"):
+            fixed = 0
+            for doc in db.collection("daily_records").stream():
+                data = doc.to_dict()
+                recs = data.get("records", {})
+                updated = {}
+                for uid, rec in recs.items():
+                    t = rec.get("time")
+                    if t and ":" in str(t):
+                        try:
+                            h, m = map(int, str(t).split(":"))
+                            total_m = h * 60 + m + 8 * 60
+                            new_t = f"{(total_m // 60) % 24:02d}:{total_m % 60:02d}"
+                            updated[uid] = {**rec, "time": new_t}
+                            fixed += 1
+                        except Exception:
+                            updated[uid] = rec
+                    else:
+                        updated[uid] = rec
+                if updated != recs:
+                    db.collection("daily_records").document(doc.id).update({"records": updated})
+        _clear()
+        st.success(f"✅ 已修正 {fixed} 筆時間紀錄！")
         st.rerun()
